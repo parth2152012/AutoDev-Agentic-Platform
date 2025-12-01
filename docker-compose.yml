@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: autodev_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-autodev}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-autodev_secure}
+      POSTGRES_DB: ${DB_NAME:-autodev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - autodev-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-autodev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: autodev_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - autodev-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autodev_app
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-autodev}:${DB_PASSWORD:-autodev_secure}@postgres:5432/${DB_NAME:-autodev}
+      - REDIS_URL=redis://redis:6379/0
+      - ENV=development
+      - DEBUG=True
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - autodev-network
+    volumes:
+      - .:/app
+    command: python -m src.main
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  autodev-network:
+    driver: bridge
